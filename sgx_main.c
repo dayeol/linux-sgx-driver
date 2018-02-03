@@ -69,8 +69,12 @@
 #include <linux/kthread.h>
 #include <linux/platform_device.h>
 
-#define DRV_DESCRIPTION "Intel SGX Driver"
+#define DRV_DESCRIPTION "Intel SGX Driver (Dummy)"
 #define DRV_VERSION "0.10"
+
+// Hard-coding EPC address and size
+#define EPC_ADDR	(0x80200000)
+#define EPC_SIZE	(0x5d80000)
 
 #define ENCL_SIZE_MAX_64 (64ULL * 1024ULL * 1024ULL * 1024ULL)
 #define ENCL_SIZE_MAX_32 (2ULL * 1024ULL * 1024ULL * 1024ULL)
@@ -159,111 +163,12 @@ static const struct file_operations sgx_fops = {
 };
 
 static struct miscdevice sgx_dev = {
-	.name	= "isgx",
+	.name	= "isgx-dummy",
 	.fops	= &sgx_fops,
 	.mode   = 0666,
 };
 
-static int sgx_init_platform(void)
-{
-	unsigned int eax, ebx, ecx, edx;
-	unsigned long size;
-	int i;
-
-	cpuid(0, &eax, &ebx, &ecx, &edx);
-	if (eax < SGX_CPUID) {
-		pr_err("intel_sgx: CPUID is missing the SGX leaf instruction\n");
-		return -ENODEV;
-	}
-
-	if (!boot_cpu_has(X86_FEATURE_SGX)) {
-		pr_err("intel_sgx: CPU is missing the SGX feature\n");
-		return -ENODEV;
-	}
-
-	cpuid_count(SGX_CPUID, 0x0, &eax, &ebx, &ecx, &edx);
-	if (!(eax & 1)) {
-		pr_err("intel_sgx: CPU does not support the SGX 1.0 instruction set\n");
-		return -ENODEV;
-	}
-
-	if (boot_cpu_has(X86_FEATURE_OSXSAVE)) {
-		cpuid_count(SGX_CPUID, 0x1, &eax, &ebx, &ecx, &edx);
-		sgx_xfrm_mask = (((u64)edx) << 32) + (u64)ecx;
-		for (i = 2; i < 64; i++) {
-			cpuid_count(0x0D, i, &eax, &ebx, &ecx, &edx);
-			if ((1 << i) & sgx_xfrm_mask)
-				sgx_ssaframesize_tbl[i] =
-					(168 + eax + ebx + PAGE_SIZE - 1) /
-					PAGE_SIZE;
-		}
-	}
-
-	cpuid_count(SGX_CPUID, 0x0, &eax, &ebx, &ecx, &edx);
-	if (edx & 0xFFFF) {
-#ifdef CONFIG_X86_64
-		sgx_encl_size_max_64 = 1ULL << ((edx >> 8) & 0xFF);
-#endif
-		sgx_encl_size_max_32 = 1ULL << (edx & 0xFF);
-	}
-
-	sgx_nr_epc_banks = 0;
-	do {
-		cpuid_count(SGX_CPUID, sgx_nr_epc_banks + 2,
-				&eax, &ebx, &ecx, &edx);
-		if (eax & 0xf) {
-			sgx_epc_banks[sgx_nr_epc_banks].start =
-				(((u64) (ebx & 0xfffff)) << 32) +
-				(u64) (eax & 0xfffff000);
-			size = (((u64) (edx & 0xfffff)) << 32) +
-				(u64) (ecx & 0xfffff000);
-			sgx_epc_banks[sgx_nr_epc_banks].end =
-				sgx_epc_banks[sgx_nr_epc_banks].start + size;
-			if (!sgx_epc_banks[sgx_nr_epc_banks].start)
-				return -ENODEV;
-			sgx_nr_epc_banks++;
-		} else {
-			break;
-		}
-	} while (sgx_nr_epc_banks < SGX_MAX_EPC_BANKS);
-
-	/* There should be at least one EPC area or something is wrong. */
-	if (!sgx_nr_epc_banks) {
-		WARN_ON(1);
-		return 1;
-	}
-
-	return 0;
-}
-
-static int sgx_pm_suspend(struct device *dev)
-{
-	struct sgx_tgid_ctx *ctx;
-	struct sgx_encl *encl;
-
-	kthread_stop(ksgxswapd_tsk);
-	ksgxswapd_tsk = NULL;
-
-	list_for_each_entry(ctx, &sgx_tgid_ctx_list, list) {
-		list_for_each_entry(encl, &ctx->encl_list, encl_list) {
-			sgx_invalidate(encl, false);
-			encl->flags |= SGX_ENCL_SUSPEND;
-			flush_work(&encl->add_page_work);
-		}
-	}
-
-	return 0;
-}
-
-static int sgx_pm_resume(struct device *dev)
-{
-	ksgxswapd_tsk = kthread_run(ksgxswapd, NULL, "kswapd");
-	return 0;
-}
-
-static SIMPLE_DEV_PM_OPS(sgx_drv_pm, sgx_pm_suspend, sgx_pm_resume);
-
-static int sgx_dev_init(struct device *dev)
+static __init int sgx_init(void)
 {
 	unsigned int wq_flags;
 	int ret;
@@ -271,12 +176,10 @@ static int sgx_dev_init(struct device *dev)
 
 	pr_info("intel_sgx: " DRV_DESCRIPTION " v" DRV_VERSION "\n");
 
-	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL)
-		return -ENODEV;
-
-	ret = sgx_init_platform();
-	if (ret)
-		return ret;
+	// hard-coded (from a real sgx machine)
+	sgx_nr_epc_banks = 1;
+	sgx_epc_banks[0].start = EPC_ADDR;
+	sgx_epc_banks[0].end = EPC_ADDR + EPC_SIZE;
 
 	pr_info("intel_sgx: Number of EPCs %d\n", sgx_nr_epc_banks);
 
@@ -311,7 +214,6 @@ static int sgx_dev_init(struct device *dev)
 		goto out_iounmap;
 	}
 
-	sgx_dev.parent = dev;
 	ret = misc_register(&sgx_dev);
 	if (ret) {
 		pr_err("intel_sgx: misc_register() failed\n");
@@ -329,57 +231,7 @@ out_iounmap:
 	return ret;
 }
 
-static int sgx_drv_probe(struct platform_device *pdev)
-{
-	unsigned int eax, ebx, ecx, edx;
-	int i;
-
-	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL)
-		return -ENODEV;
-
-	cpuid(0, &eax, &ebx, &ecx, &edx);
-	if (eax < SGX_CPUID) {
-		pr_err("intel_sgx: CPUID is missing the SGX leaf instruction\n");
-		return -ENODEV;
-	}
-
-	if (!boot_cpu_has(X86_FEATURE_SGX)) {
-		pr_err("intel_sgx: CPU is missing the SGX feature\n");
-		return -ENODEV;
-	}
-
-	cpuid_count(SGX_CPUID, 0x0, &eax, &ebx, &ecx, &edx);
-	if (!(eax & 1)) {
-		pr_err("intel_sgx: CPU does not support the SGX 1.0 instruction set\n");
-		return -ENODEV;
-	}
-
-	sgx_has_sgx2 = (eax & 2) != 0;
-
-	if (boot_cpu_has(X86_FEATURE_OSXSAVE)) {
-		cpuid_count(SGX_CPUID, 0x1, &eax, &ebx, &ecx, &edx);
-		sgx_xfrm_mask = (((u64)edx) << 32) + (u64)ecx;
-		for (i = 2; i < 64; i++) {
-			cpuid_count(0x0D, i, &eax, &ebx, &ecx, &edx);
-			if ((1 << i) & sgx_xfrm_mask)
-				sgx_ssaframesize_tbl[i] =
-					(168 + eax + ebx + PAGE_SIZE - 1) /
-					PAGE_SIZE;
-		}
-	}
-
-	cpuid_count(SGX_CPUID, 0x0, &eax, &ebx, &ecx, &edx);
-	if (edx & 0xFFFF) {
-#ifdef CONFIG_X86_64
-		sgx_encl_size_max_64 = 2ULL << (edx & 0xFF);
-#endif
-		sgx_encl_size_max_32 = 2ULL << ((edx >> 8) & 0xFF);
-	}
-
-	return sgx_dev_init(&pdev->dev);
-}
-
-static int sgx_drv_remove(struct platform_device *pdev)
+static __exit void sgx_exit(void)
 {
 	int i;
 
@@ -390,50 +242,9 @@ static int sgx_drv_remove(struct platform_device *pdev)
 		iounmap(sgx_epc_banks[i].mem);
 #endif
 	sgx_page_cache_teardown();
-
-	return 0;
 }
 
-#ifdef CONFIG_ACPI
-static struct acpi_device_id sgx_device_ids[] = {
-	{"INT0E0C", 0},
-	{"", 0},
-};
-MODULE_DEVICE_TABLE(acpi, sgx_device_ids);
-#endif
-
-static struct platform_driver sgx_drv = {
-	.probe = sgx_drv_probe,
-	.remove = sgx_drv_remove,
-	.driver = {
-		.name			= "intel_sgx",
-		.pm			= &sgx_drv_pm,
-		.acpi_match_table	= ACPI_PTR(sgx_device_ids),
-	},
-};
-
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0))
-module_platform_driver(sgx_drv);
-#else
-static struct platform_device *pdev;
-int init_sgx_module(void)
-{
-	platform_driver_register(&sgx_drv);
-	pdev = platform_device_register_simple("intel_sgx", 0, NULL, 0);
-	if (IS_ERR(pdev))
-		pr_err("platform_device_register_simple failed\n");
-	return 0;
-}
-
-void cleanup_sgx_module(void)
-{
-	dev_set_uevent_suppress(&pdev->dev, true);
-	platform_device_unregister(pdev);
-	platform_driver_unregister(&sgx_drv);
-}
-
-module_init(init_sgx_module);
-module_exit(cleanup_sgx_module);
-#endif
+module_init(sgx_init);
+module_exit(sgx_exit);
 
 MODULE_LICENSE("Dual BSD/GPL");

@@ -144,38 +144,22 @@ static inline int sgx_vma_access_word(struct sgx_encl *encl,
 
 		if (align || (cnt != sizeof(unsigned long))) {
 			vaddr = sgx_get_page(encl_page->epc_page);
-			ret = __edbgrd((void *)((unsigned long)vaddr + offset),
-				       (unsigned long *)data);
+			memcpy(data, vaddr + offset, sizeof(unsigned long));
 			sgx_put_page(vaddr);
-			if (ret) {
-				sgx_dbg(encl, "EDBGRD returned %d\n", ret);
-				return -EFAULT;
-			}
 		}
 
 		memcpy(data + align, buf + i, cnt);
 		vaddr = sgx_get_page(encl_page->epc_page);
-		ret = __edbgwr((void *)((unsigned long)vaddr + offset),
-			       (unsigned long *)data);
+		memcpy(vaddr + offset, data, sizeof(unsigned long));
 		sgx_put_page(vaddr);
-		if (ret) {
-			sgx_dbg(encl, "EDBGWR returned %d\n", ret);
-			return -EFAULT;
-		}
 	} else {
 		if (encl_page->flags & SGX_ENCL_PAGE_TCS &&
 		    (offset + (len - i)) > 72)
 			return -ECANCELED;
 
 		vaddr = sgx_get_page(encl_page->epc_page);
-		ret = __edbgrd((void *)((unsigned long)vaddr + offset),
-			       (unsigned long *)data);
+		memcpy(data, vaddr + offset, sizeof(unsigned long));
 		sgx_put_page(vaddr);
-		if (ret) {
-			sgx_dbg(encl, "EDBGRD returned %d\n", ret);
-			return -EFAULT;
-		}
-
 		memcpy(buf + i, data + align, cnt);
 	}
 

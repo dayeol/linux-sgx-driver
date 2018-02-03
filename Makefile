@@ -1,11 +1,11 @@
 ifneq ($(KERNELRELEASE),)
-	isgx-y := \
+	isgx-dummy-y := \
 		sgx_main.o \
 		sgx_page_cache.o \
 		sgx_ioctl.o \
 		sgx_vma.o \
 		sgx_util.o
-	obj-m += isgx.o
+	obj-m += isgx-dummy.o
 else
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd)
@@ -15,7 +15,7 @@ default:
 
 install: default
 	$(MAKE) INSTALL_MOD_DIR=kernel/drivers/intel/sgx -C $(KDIR) M=$(PWD) modules_install
-	sh -c "cat /etc/modules | grep -Fxq isgx || echo isgx >> /etc/modules"
+	sh -c "cat /etc/modules | grep -Fxq isgx_dummy || echo isgx_dummy >> /etc/modules"
 
 endif
 

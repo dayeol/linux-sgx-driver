@@ -181,7 +181,8 @@ static int sgx_measure(struct sgx_epc_page *secs_page,
 		secs = sgx_get_page(secs_page);
 		epc = sgx_get_page(epc_page);
 
-		ret = __eextend(secs, (void *)((unsigned long)epc + i));
+		//ret = __eextend(secs, (void *)((unsigned long)epc + i));
+		ret = 0;
 
 		sgx_put_page(epc);
 		sgx_put_page(secs);
@@ -196,23 +197,15 @@ static int sgx_add_page(struct sgx_epc_page *secs_page,
 			struct sgx_secinfo *secinfo,
 			struct page *backing)
 {
-	struct sgx_page_info pginfo;
-	void *epc_page_vaddr;
-	int ret;
+	void *backing_ptr;
+	void *epc;
 
-	pginfo.srcpge = (unsigned long)kmap_atomic(backing);
-	pginfo.secs = (unsigned long)sgx_get_page(secs_page);
-	epc_page_vaddr = sgx_get_page(epc_page);
-
-	pginfo.linaddr = linaddr;
-	pginfo.secinfo = (unsigned long)secinfo;
-	ret = __eadd(&pginfo, epc_page_vaddr);
-
-	sgx_put_page(epc_page_vaddr);
-	sgx_put_page((void *)(unsigned long)pginfo.secs);
-	kunmap_atomic((void *)(unsigned long)pginfo.srcpge);
-
-	return ret;
+	backing_ptr = kmap_atomic(backing);
+	epc = sgx_get_page(epc_page);
+	memcpy(epc, backing_ptr, PAGE_SIZE);
+	sgx_put_page(epc);
+	kunmap_atomic(backing_ptr);
+	return 0;
 }
 
 static bool sgx_process_add_page_req(struct sgx_add_page_req *req)
@@ -348,7 +341,7 @@ static int sgx_validate_secs(const struct sgx_secs *secs)
 			return -EINVAL;
 	}
 
-	if ((secs->xfrm & 0x3) != 0x3 || (secs->xfrm & ~sgx_xfrm_mask))
+	if ((secs->xfrm & 0x3) != 0x3)
 		return -EINVAL;
 
 	/* Check that BNDREGS and BNDCSR are equal. */
@@ -424,7 +417,8 @@ static int sgx_init_page(struct sgx_encl *encl,
 			return -EFAULT;
 		}
 
-		ret = __epa(vaddr);
+		//ret = __epa(vaddr);
+		ret = 0;
 		sgx_put_page(vaddr);
 
 		if (ret) {
@@ -477,8 +471,6 @@ static long sgx_ioc_enclave_create(struct file *filep, unsigned int cmd,
 {
 	struct sgx_enclave_create *createp = (struct sgx_enclave_create *)arg;
 	unsigned long src = (unsigned long)createp->src;
-	struct sgx_page_info pginfo;
-	struct sgx_secinfo secinfo;
 	struct sgx_encl *encl = NULL;
 	struct sgx_secs *secs = NULL;
 	struct sgx_epc_page *secs_epc;
@@ -559,22 +551,8 @@ static long sgx_ioc_enclave_create(struct file *filep, unsigned int cmd,
 		goto out;
 
 	secs_vaddr = sgx_get_page(secs_epc);
-
-	pginfo.srcpge = (unsigned long)secs;
-	pginfo.linaddr = 0;
-	pginfo.secinfo = (unsigned long)&secinfo;
-	pginfo.secs = 0;
-	memset(&secinfo, 0, sizeof(secinfo));
-	ret = __ecreate((void *)&pginfo, secs_vaddr);
-
+	memcpy(secs_vaddr, secs, PAGE_SIZE);
 	sgx_put_page(secs_vaddr);
-
-	if (ret) {
-		sgx_dbg(encl, "ECREATE returned %ld\n", ret);
-		ret = -EFAULT;
-		goto out;
-	}
-
 	encl->secs_page.epc_page = secs_epc;
 	createp->src = (unsigned long)encl->base;
 
@@ -832,7 +810,8 @@ static int __sgx_encl_init(struct sgx_encl *encl, char *sigstruct,
 		for (j = 0; j < SGX_EINIT_SPIN_COUNT; j++) {
 			mutex_lock(&encl->lock);
 			secs_va = sgx_get_page(secs_epc);
-			ret = __einit(sigstruct, einittoken, secs_va);
+			//ret = __einit(sigstruct, einittoken, secs_va);
+			ret = 0;
 			sgx_put_page(secs_va);
 			mutex_unlock(&encl->lock);
 			if (ret == SGX_UNMASKED_EVENT)

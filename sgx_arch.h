@@ -168,6 +168,8 @@ struct sgx_page_info {
 #define SIGSTRUCT_SIZE 1808
 #define EINITTOKEN_SIZE 304
 
+#if 0 /* make sure we don't call SGX instructions */
+
 enum {
 	ECREATE	= 0x0,
 	EADD	= 0x1,
@@ -338,6 +340,8 @@ static inline int __emodt(struct sgx_secinfo *secinfo, void *epc)
 
 	return __encls_ret(EMODT, secinfo, epc, rdx);
 }
+
+#endif
 
 struct sgx_encl;
 

@@ -232,7 +232,8 @@ static void sgx_eblock(struct sgx_encl *encl,
 	int ret;
 
 	vaddr = sgx_get_page(epc_page);
-	ret = __eblock((unsigned long)vaddr);
+	//ret = __eblock((unsigned long)vaddr);
+	ret = 0;
 	sgx_put_page(vaddr);
 
 	if (ret) {
@@ -248,7 +249,8 @@ static void sgx_etrack(struct sgx_encl *encl)
 	int ret;
 
 	epc = sgx_get_page(encl->secs_page.epc_page);
-	ret = __etrack(epc);
+	//ret = __etrack(epc);
+	ret = 0;
 	sgx_put_page(epc);
 
 	if (ret) {
@@ -260,15 +262,10 @@ static void sgx_etrack(struct sgx_encl *encl)
 static int __sgx_ewb(struct sgx_encl *encl,
 		     struct sgx_encl_page *encl_page)
 {
-	struct sgx_page_info pginfo;
 	struct page *backing;
-	struct page *pcmd;
-	unsigned long pcmd_offset;
+	void *backing_ptr;
 	void *epc;
-	void *va;
 	int ret;
-
-	pcmd_offset = ((encl_page->addr >> PAGE_SHIFT) & 31) * 128;
 
 	backing = sgx_get_backing(encl, encl_page, false);
 	if (IS_ERR(backing)) {
@@ -278,33 +275,13 @@ static int __sgx_ewb(struct sgx_encl *encl,
 		return ret;
 	}
 
-	pcmd = sgx_get_backing(encl, encl_page, true);
-	if (IS_ERR(pcmd)) {
-		ret = PTR_ERR(pcmd);
-		sgx_warn(encl, "pinning the pcmd page for EWB failed with %d\n",
-			 ret);
-		goto out;
-	}
-
+	backing_ptr = kmap_atomic(backing);
 	epc = sgx_get_page(encl_page->epc_page);
-	va = sgx_get_page(encl_page->va_page->epc_page);
-
-	pginfo.srcpge = (unsigned long)kmap_atomic(backing);
-	pginfo.pcmd = (unsigned long)kmap_atomic(pcmd) + pcmd_offset;
-	pginfo.linaddr = 0;
-	pginfo.secs = 0;
-	ret = __ewb(&pginfo, epc,
-		    (void *)((unsigned long)va + encl_page->va_offset));
-	kunmap_atomic((void *)(unsigned long)(pginfo.pcmd - pcmd_offset));
-	kunmap_atomic((void *)(unsigned long)pginfo.srcpge);
-
-	sgx_put_page(va);
+	memcpy(epc, backing, PAGE_SIZE);
 	sgx_put_page(epc);
-	sgx_put_backing(pcmd, true);
-
-out:
+	kunmap_atomic(backing_ptr);
 	sgx_put_backing(backing, true);
-	return ret;
+	return 0;
 }
 
 static bool sgx_ewb(struct sgx_encl *encl,
@@ -554,7 +531,8 @@ int sgx_free_page(struct sgx_epc_page *entry, struct sgx_encl *encl)
 	int ret;
 
 	epc = sgx_get_page(entry);
-	ret = __eremove(epc);
+	//ret = __eremove(epc);
+	ret = 0;
 	sgx_put_page(epc);
 
 	if (ret) {

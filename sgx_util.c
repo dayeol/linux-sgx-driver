@@ -192,15 +192,9 @@ static int sgx_eldu(struct sgx_encl *encl,
 		    bool is_secs)
 {
 	struct page *backing;
-	struct page *pcmd;
-	unsigned long pcmd_offset;
-	struct sgx_page_info pginfo;
-	void *secs_ptr = NULL;
-	void *epc_ptr;
-	void *va_ptr;
+	void *backing_ptr;
+	void *epc;
 	int ret;
-
-	pcmd_offset = ((encl_page->addr >> PAGE_SHIFT) & 31) * 128;
 
 	backing = sgx_get_backing(encl, encl_page, false);
 	if (IS_ERR(backing)) {
@@ -210,46 +204,13 @@ static int sgx_eldu(struct sgx_encl *encl,
 		return ret;
 	}
 
-	pcmd = sgx_get_backing(encl, encl_page, true);
-	if (IS_ERR(pcmd)) {
-		ret = PTR_ERR(pcmd);
-		sgx_warn(encl, "pinning the pcmd page for EWB failed with %d\n",
-			 ret);
-		goto out;
-	}
-
-	if (!is_secs)
-		secs_ptr = sgx_get_page(encl->secs_page.epc_page);
-
-	epc_ptr = sgx_get_page(epc_page);
-	va_ptr = sgx_get_page(encl_page->va_page->epc_page);
-	pginfo.srcpge = (unsigned long)kmap_atomic(backing);
-	pginfo.pcmd = (unsigned long)kmap_atomic(pcmd) + pcmd_offset;
-	pginfo.linaddr = is_secs ? 0 : encl_page->addr;
-	pginfo.secs = (unsigned long)secs_ptr;
-
-	ret = __eldu((unsigned long)&pginfo,
-		     (unsigned long)epc_ptr,
-		     (unsigned long)va_ptr +
-		     encl_page->va_offset);
-	if (ret) {
-		sgx_err(encl, "ELDU returned %d\n", ret);
-		ret = -EFAULT;
-	}
-
-	kunmap_atomic((void *)(unsigned long)(pginfo.pcmd - pcmd_offset));
-	kunmap_atomic((void *)(unsigned long)pginfo.srcpge);
-	sgx_put_page(va_ptr);
-	sgx_put_page(epc_ptr);
-
-	if (!is_secs)
-		sgx_put_page(secs_ptr);
-
-	sgx_put_backing(pcmd, false);
-
-out:
+	backing_ptr = kmap_atomic(backing);
+	epc = sgx_get_page(epc_page);
+	memcpy(epc, backing_ptr, PAGE_SIZE);
+	sgx_put_page(epc);
+	kunmap_atomic(backing_ptr);
 	sgx_put_backing(backing, false);
-	return ret;
+	return 0;
 }
 
 static struct sgx_encl_page *sgx_do_fault(struct vm_area_struct *vma,
