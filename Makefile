@@ -7,7 +7,8 @@ ifneq ($(KERNELRELEASE),)
 		sgx_util.o
 	obj-m += isgx-dummy.o
 else
-KDIR := /lib/modules/$(shell uname -r)/build
+#KDIR := /lib/modules/$(shell uname -r)/build
+KDIR := ../../linux
 PWD  := $(shell pwd)
 
 default:
