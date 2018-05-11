@@ -64,6 +64,7 @@
 #include <linux/highmem.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/suspend.h>
 #include <linux/hashtable.h>
 #include <linux/kthread.h>
@@ -263,6 +264,12 @@ static int sgx_pm_resume(struct device *dev)
 
 static SIMPLE_DEV_PM_OPS(sgx_drv_pm, sgx_pm_suspend, sgx_pm_resume);
 
+#ifdef CONFIG_X86_64
+static bool nocache = false;
+module_param(nocache, bool, 0644);
+MODULE_PARM_DESC(nocache, "Disable cache for the EPC");
+#endif
+
 static int sgx_dev_init(struct device *dev)
 {
 	unsigned int wq_flags;
@@ -284,8 +291,14 @@ static int sgx_dev_init(struct device *dev)
 		pr_info("intel_sgx: EPC memory range 0x%lx-0x%lx\n",
 			sgx_epc_banks[i].start, sgx_epc_banks[i].end);
 #ifdef CONFIG_X86_64
-		sgx_epc_banks[i].mem = ioremap_cache(sgx_epc_banks[i].start,
-			sgx_epc_banks[i].end - sgx_epc_banks[i].start);
+		if (nocache)
+			sgx_epc_banks[i].mem = ioremap_nocache(
+				sgx_epc_banks[i].start,
+				sgx_epc_banks[i].end - sgx_epc_banks[i].start);
+		else
+			sgx_epc_banks[i].mem = ioremap_cache(
+				sgx_epc_banks[i].start,
+				sgx_epc_banks[i].end - sgx_epc_banks[i].start);
 		if (!sgx_epc_banks[i].mem) {
 			sgx_nr_epc_banks = i;
 			ret = -ENOMEM;
