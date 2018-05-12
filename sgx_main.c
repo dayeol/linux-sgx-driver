@@ -270,6 +270,18 @@ module_param(nocache, bool, 0644);
 MODULE_PARM_DESC(nocache, "Disable cache for the EPC");
 #endif
 
+static void disable_cache(void *arg)
+{
+	native_write_cr0(native_read_cr0() | 0x40000000);
+	wbinvd();
+}
+
+static void enable_cache(void *arg)
+{
+	native_write_cr0(native_read_cr0() & ~0x40000000);
+	wbinvd();
+}
+
 static int sgx_dev_init(struct device *dev)
 {
 	unsigned int wq_flags;
@@ -285,6 +297,11 @@ static int sgx_dev_init(struct device *dev)
 	if (ret)
 		return ret;
 
+	if (nocache) {
+		pr_info("intel_sgx: cache disabled for EPC\n");
+		smp_call_function(disable_cache, NULL, 1);
+	}
+
 	pr_info("intel_sgx: Number of EPCs %d\n", sgx_nr_epc_banks);
 
 	for (i = 0; i < sgx_nr_epc_banks; i++) {
@@ -292,7 +309,7 @@ static int sgx_dev_init(struct device *dev)
 			sgx_epc_banks[i].start, sgx_epc_banks[i].end);
 #ifdef CONFIG_X86_64
 		if (nocache)
-			sgx_epc_banks[i].mem = ioremap_nocache(
+			sgx_epc_banks[i].mem = ioremap_uc(
 				sgx_epc_banks[i].start,
 				sgx_epc_banks[i].end - sgx_epc_banks[i].start);
 		else
@@ -403,6 +420,9 @@ static int sgx_drv_remove(struct platform_device *pdev)
 		iounmap(sgx_epc_banks[i].mem);
 #endif
 	sgx_page_cache_teardown();
+
+	if (nocache)
+		smp_call_function(enable_cache, NULL, 1);
 
 	return 0;
 }
