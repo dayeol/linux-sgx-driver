@@ -242,7 +242,7 @@ static int sgx_pm_suspend(struct device *dev)
 	struct sgx_tgid_ctx *ctx;
 	struct sgx_encl *encl;
 
-	kthread_stop(ksgxswapd_tsk);
+	//kthread_stop(ksgxswapd_tsk);
 	ksgxswapd_tsk = NULL;
 
 	list_for_each_entry(ctx, &sgx_tgid_ctx_list, list) {
@@ -258,7 +258,7 @@ static int sgx_pm_suspend(struct device *dev)
 
 static int sgx_pm_resume(struct device *dev)
 {
-	ksgxswapd_tsk = kthread_run(ksgxswapd, NULL, "kswapd");
+	//ksgxswapd_tsk = kthread_run(ksgxswapd, NULL, "kswapd");
 	return 0;
 }
 
