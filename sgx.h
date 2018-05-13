@@ -107,8 +107,8 @@ enum sgx_encl_page_flags {
 struct sgx_encl_page {
 	unsigned long addr;
 	unsigned int flags;
+	struct sgx_encl *encl;
 	struct sgx_epc_page *epc_page;
-	struct sgx_epc_page *given_epc_page;
 	struct list_head load_list;
 	struct sgx_va_page *va_page;
 	unsigned int va_offset;
@@ -227,7 +227,7 @@ enum sgx_alloc_flags {
 int ksgxswapd(void *p);
 int sgx_page_cache_init(resource_size_t start, unsigned long size);
 void sgx_page_cache_teardown(void);
-struct sgx_epc_page *sgx_alloc_page(struct sgx_encl_page *culprit,
+struct sgx_epc_page *sgx_alloc_page(struct sgx_encl_page *encl_page,
 				    unsigned int flags);
 int sgx_free_page(struct sgx_epc_page *entry, struct sgx_encl *encl);
 void *sgx_get_page(struct sgx_epc_page *entry);

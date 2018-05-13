@@ -262,7 +262,7 @@ static struct sgx_encl_page *sgx_do_fault(struct vm_area_struct *vma,
 		goto out;
 	}
 
-	epc_page = sgx_alloc_page(entry, SGX_ALLOC_ATOMIC);
+	epc_page = sgx_alloc_page(entry, 0);
 	if (IS_ERR(epc_page)) {
 		rc = PTR_ERR(epc_page);
 		epc_page = NULL;
@@ -271,7 +271,9 @@ static struct sgx_encl_page *sgx_do_fault(struct vm_area_struct *vma,
 
 	/* If SECS is evicted then reload it first */
 	if (encl->flags & SGX_ENCL_SECS_EVICTED) {
-		secs_epc_page = sgx_alloc_page(&encl->secs_page, SGX_ALLOC_ATOMIC);
+		BUG(); // should not happen???
+
+		secs_epc_page = sgx_alloc_page(NULL, SGX_ALLOC_ATOMIC);
 		if (IS_ERR(secs_epc_page)) {
 			rc = PTR_ERR(secs_epc_page);
 			secs_epc_page = NULL;
@@ -282,6 +284,7 @@ static struct sgx_encl_page *sgx_do_fault(struct vm_area_struct *vma,
 		if (rc)
 			goto out;
 
+		secs_epc_page->encl_page = &encl->secs_page;
 		encl->secs_page.epc_page = secs_epc_page;
 		encl->flags &= ~SGX_ENCL_SECS_EVICTED;
 
@@ -301,12 +304,6 @@ static struct sgx_encl_page *sgx_do_fault(struct vm_area_struct *vma,
 	 */
 	encl->secs_child_cnt++;
 
-	if (entry->given_epc_page)
-		BUG_ON(entry->given_epc_page != epc_page);
-	else
-		entry->given_epc_page = epc_page;
-
-	epc_page->encl_page = entry;
 	entry->epc_page = epc_page;
 
 	if (reserve)

@@ -347,12 +347,12 @@ struct sgx_encl;
 struct sgx_encl_page;
 
 struct sgx_epc_page {
+	struct sgx_encl_page *encl_page;
 	resource_size_t	pa;
 	struct list_head free_list;
-	struct sgx_encl_page *encl_page;
 };
 
-extern struct sgx_epc_page *sgx_alloc_page(struct sgx_encl_page *culprit,
+extern struct sgx_epc_page *sgx_alloc_page(struct sgx_encl_page *encl_page,
 					   unsigned int flags);
 extern int sgx_free_page(struct sgx_epc_page *entry, struct sgx_encl *encl);
 extern void *sgx_get_page(struct sgx_epc_page *entry);
