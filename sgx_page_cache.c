@@ -446,6 +446,8 @@ int sgx_page_cache_init(resource_size_t start, unsigned long size)
 	struct sgx_epc_page *new_epc_page, *entry;
 	//struct list_head *parser, *temp;
 
+	pr_info("intel_sgx: sgx_page_cache_init started\n");
+
 	for (i = 0; i < size; i += PAGE_SIZE) {
 		new_epc_page = kzalloc(sizeof(*new_epc_page), GFP_KERNEL);
 		if (!new_epc_page) {
@@ -469,6 +471,8 @@ int sgx_page_cache_init(resource_size_t start, unsigned long size)
 
 	sgx_nr_high_pages = 2 * sgx_nr_low_pages;
 	//ksgxswapd_tsk = kthread_run(ksgxswapd, NULL, "ksgxswapd");
+
+	pr_info("intel_sgx: sgx_page_cache_init finished\n");
 
 	return 0;
 err_freelist:

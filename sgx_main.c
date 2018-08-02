@@ -327,6 +327,8 @@ static int sgx_dev_init(struct device *dev)
 			goto out_iounmap;
 		}
 #endif
+		pr_info("intel_sgx: ioremap finished\n");
+
 		ret = sgx_page_cache_init(sgx_epc_banks[i].start,
 			sgx_epc_banks[i].end - sgx_epc_banks[i].start);
 		if (ret) {
@@ -335,6 +337,8 @@ static int sgx_dev_init(struct device *dev)
 			goto out_iounmap;
 		}
 	}
+
+	pr_info("intel_sgx: allow_workqueue()\n");
 
 	wq_flags = WQ_UNBOUND | WQ_FREEZABLE;
 #ifdef WQ_NON_REENETRANT
