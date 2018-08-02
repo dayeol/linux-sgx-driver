@@ -448,8 +448,10 @@ int sgx_page_cache_init(resource_size_t start, unsigned long size)
 
 	for (i = 0; i < size; i += PAGE_SIZE) {
 		new_epc_page = kzalloc(sizeof(*new_epc_page), GFP_KERNEL);
-		if (!new_epc_page)
+		if (!new_epc_page) {
+			pr_err("intel_sgx: cannot allocate new page\n");
 			goto err_freelist;
+		}
 		new_epc_page->pa = start + i;
 
 		spin_lock(&sgx_free_list_lock);

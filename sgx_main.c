@@ -290,12 +290,16 @@ static int sgx_dev_init(struct device *dev)
 
 	pr_info("intel_sgx: " DRV_DESCRIPTION " v" DRV_VERSION "\n");
 
-	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL)
+	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL) {
+		pr_err("intel_sgx: not an Intel platform\n");
 		return -ENODEV;
+	}
 
 	ret = sgx_init_platform();
-	if (ret)
+	if (ret) {
+		pr_err("intel_sgx: sgx_init_platform failed\n");
 		return ret;
+	}
 
 	if (nocache) {
 		pr_info("intel_sgx: cache disabled for EPC\n");
@@ -318,6 +322,7 @@ static int sgx_dev_init(struct device *dev)
 				sgx_epc_banks[i].end - sgx_epc_banks[i].start);
 		if (!sgx_epc_banks[i].mem) {
 			sgx_nr_epc_banks = i;
+			pr_err("intel_sgx: ioremap_cache failed\n");
 			ret = -ENOMEM;
 			goto out_iounmap;
 		}
@@ -326,6 +331,7 @@ static int sgx_dev_init(struct device *dev)
 			sgx_epc_banks[i].end - sgx_epc_banks[i].start);
 		if (ret) {
 			sgx_nr_epc_banks = i+1;
+			pr_err("intel_sgx: sgx_page_cache_init failed\n");
 			goto out_iounmap;
 		}
 	}
@@ -364,8 +370,12 @@ static int sgx_drv_probe(struct platform_device *pdev)
 	unsigned int eax, ebx, ecx, edx;
 	int i;
 
-	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL)
+	pr_info("intel_sgx: start probing\n");
+
+	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL) {
+		pr_err("intel_sgx: not an Intel platform\n");
 		return -ENODEV;
+	}
 
 	cpuid(0, &eax, &ebx, &ecx, &edx);
 	if (eax < SGX_CPUID) {
