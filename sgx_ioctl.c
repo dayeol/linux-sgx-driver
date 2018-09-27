@@ -446,6 +446,12 @@ static int sgx_init_page(struct sgx_encl *encl,
 	entry->va_offset = va_offset;
 	entry->addr = addr;
 
+  if(addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END)
+  {
+    entry->flags |= SGX_ENCL_PAGE_PINNED;
+  }
+      
+
 	return 0;
 }
 
