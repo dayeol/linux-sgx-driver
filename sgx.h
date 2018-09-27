@@ -71,6 +71,9 @@
 #include <linux/radix-tree.h>
 #include "sgx_arch.h"
 
+#define MTAP_PIN_VA_START 0x601000
+#define MTAP_PIN_VA_END 0x602000
+
 #define SGX_EINIT_SPIN_COUNT	20
 #define SGX_EINIT_SLEEP_COUNT	50
 #define SGX_EINIT_SLEEP_TIME	20
@@ -102,6 +105,7 @@ static inline void sgx_free_va_slot(struct sgx_va_page *page,
 enum sgx_encl_page_flags {
 	SGX_ENCL_PAGE_TCS	= BIT(0),
 	SGX_ENCL_PAGE_RESERVED	= BIT(1),
+  SGX_ENCL_PAGE_PINNED = BIT(2),
 };
 
 struct sgx_encl_page {
