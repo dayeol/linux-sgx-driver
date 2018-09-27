@@ -214,9 +214,16 @@ static void sgx_isolate_pages(struct sgx_encl *encl,
 		if (list_empty(&encl->load_list))
 			break;
 
-		entry = list_first_entry(&encl->load_list,
-					 struct sgx_encl_page,
-					 load_list);
+reselect_page:
+    entry = list_first_entry(&encl->load_list,
+        struct sgx_encl_page,
+        load_list);
+
+    if(entry->flags & SGX_ENCL_PAGE_PINNED)
+    {
+      list_move_tail(&entry->load_list, &encl->load_list);
+      goto reselect_page;
+    }
 
 		if (!sgx_test_and_clear_young(entry, encl) &&
 		    !(entry->flags & SGX_ENCL_PAGE_RESERVED)) {
