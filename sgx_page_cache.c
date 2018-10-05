@@ -74,17 +74,21 @@
 #define SGX_NR_SWAP_CLUSTER_MAX	16
 
 static LIST_HEAD(sgx_free_list);
+static LIST_HEAD(sgx_conflict_list);
 static DEFINE_SPINLOCK(sgx_free_list_lock);
 
 LIST_HEAD(sgx_tgid_ctx_list);
 DEFINE_MUTEX(sgx_tgid_ctx_mutex);
 static unsigned int sgx_nr_total_epc_pages;
 static unsigned int sgx_nr_free_pages;
+static unsigned int sgx_nr_free_pages_conflict;
 static unsigned int sgx_nr_low_pages = SGX_NR_LOW_EPC_PAGES_DEFAULT;
 static unsigned int sgx_nr_high_pages;
 struct task_struct *ksgxswapd_tsk;
 static DECLARE_WAIT_QUEUE_HEAD(ksgxswapd_waitq);
 
+/* UCB */
+static unsigned int conflict_group[MTAP_NUM_GROUP];
 
 static int sgx_test_and_clear_young_cb(pte_t *ptep, pgtable_t token,
 				       unsigned long addr, void *data)
@@ -427,11 +431,46 @@ int ksgxswapd(void *p)
 	return 0;
 }
 
+#define SET(addr) ((addr>>6) & (MTAP_NUM_SETS - 1))
+#define GROUP(set) (set >> 6)
+int does_conflict(resource_size_t pa)
+{
+  if( GROUP( SET(pa) ) < 2 )
+    return 1;
+  else
+    return 0;
+} 
+
+void init_conflict_group(resource_size_t start, unsigned long size)
+{
+  resource_size_t walk;
+  int g;
+  
+  // from the starting address, go through all the pages, 
+  // and increment the counter for the group that the page belongs to.
+  for(g=0; g<MTAP_NUM_GROUP; g++)
+  {
+    conflict_group[g] = 0;
+  }
+  for(walk = start; walk < start + size; walk += PAGE_SIZE)
+  {
+    int group;
+    group = GROUP( SET(walk) );
+    conflict_group[group] ++;
+  }
+  for(g=0; g<MTAP_NUM_GROUP; g++)
+  {
+    pr_info("conflict group %d: %d\n", g, conflict_group[g]);
+  }
+}
+
 int sgx_page_cache_init(resource_size_t start, unsigned long size)
 {
 	unsigned long i;
 	struct sgx_epc_page *new_epc_page, *entry;
 	struct list_head *parser, *temp;
+
+  init_conflict_group(start, size);
 
 	for (i = 0; i < size; i += PAGE_SIZE) {
 		new_epc_page = kzalloc(sizeof(*new_epc_page), GFP_KERNEL);
@@ -440,9 +479,17 @@ int sgx_page_cache_init(resource_size_t start, unsigned long size)
 		new_epc_page->pa = start + i;
 
 		spin_lock(&sgx_free_list_lock);
-		list_add_tail(&new_epc_page->free_list, &sgx_free_list);
-		sgx_nr_total_epc_pages++;
-		sgx_nr_free_pages++;
+    if(does_conflict(new_epc_page->pa))
+    {
+      list_add_tail(&new_epc_page->free_list, &sgx_conflict_list);
+      sgx_nr_free_pages_conflict++;
+    }
+    else
+    {
+		  list_add_tail(&new_epc_page->free_list, &sgx_free_list);
+		  sgx_nr_free_pages++;
+    }
+    sgx_nr_total_epc_pages++;
 		spin_unlock(&sgx_free_list_lock);
 	}
 
@@ -476,6 +523,23 @@ void sgx_page_cache_teardown(void)
 		kfree(entry);
 	}
 	spin_unlock(&sgx_free_list_lock);
+}
+
+static struct sgx_epc_page *sgx_alloc_conflict_fast(void)
+{
+  struct sgx_epc_page *entry = NULL;
+
+  spin_lock(&sgx_free_list_lock);
+
+  if (!list_empty(&sgx_conflict_list)) {
+    entry = list_first_entry(&sgx_conflict_list, struct sgx_epc_page, free_list);
+    list_del(&entry->free_list);
+    sgx_nr_free_pages_conflict--;
+  }
+  
+  spin_unlock(&sgx_free_list_lock);
+  
+  return entry;
 }
 
 static struct sgx_epc_page *sgx_alloc_page_fast(void)
@@ -513,7 +577,12 @@ struct sgx_epc_page *sgx_alloc_page(unsigned int flags)
 	struct sgx_epc_page *entry;
 
 	for ( ; ; ) {
-		entry = sgx_alloc_page_fast();
+    if(flags & SGX_ALLOC_CONFLICT) {
+      entry = sgx_alloc_conflict_fast();
+    }
+    else {
+      entry = sgx_alloc_page_fast();
+    }
 		if (entry)
 			break;
 

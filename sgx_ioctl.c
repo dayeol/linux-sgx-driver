@@ -446,11 +446,7 @@ static int sgx_init_page(struct sgx_encl *encl,
 	entry->va_offset = va_offset;
 	entry->addr = addr;
 
-  if(addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END)
-  {
-    entry->flags |= SGX_ENCL_PAGE_PINNED;
-  }
-      
+     
 
 	return 0;
 }
@@ -493,6 +489,11 @@ static long sgx_ioc_enclave_create(struct file *filep, unsigned int cmd,
 	struct file *backing;
 	struct file *pcmd;
 	long ret;
+
+
+  /* UCB */
+  unsigned long addr;
+  int is_important_va;
 
 	secs = kzalloc(sizeof(*secs),  GFP_KERNEL);
 	if (!secs)
@@ -548,7 +549,18 @@ static long sgx_ioc_enclave_create(struct file *filep, unsigned int cmd,
 	encl->backing = backing;
 	encl->pcmd = pcmd;
 
-	secs_epc = sgx_alloc_page(0);
+  /* UCB: check if the requested VA is important for our attack */
+  addr = encl->base + encl->size;
+  is_important_va = (addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END);
+  if(is_important_va) {
+    secs_epc = sgx_alloc_page(SGX_ALLOC_CONFLICT);
+  }
+  else {
+    secs_epc = sgx_alloc_page(0);
+  }
+   
+  pr_info("epc pa %08llx -> va %08lx\n", secs_epc->pa, addr);
+
 	if (IS_ERR(secs_epc)) {
 		ret = PTR_ERR(secs_epc);
 		secs_epc = NULL;
@@ -559,10 +571,15 @@ static long sgx_ioc_enclave_create(struct file *filep, unsigned int cmd,
 	if (ret)
 		goto out;
 
-	ret = sgx_init_page(encl, &encl->secs_page,
-			    encl->base + encl->size);
+  ret = sgx_init_page(encl, &encl->secs_page, addr);
 	if (ret)
 		goto out;
+ 
+  /* UCB: pinpoint the page so that it never swapped out */ 
+  if(is_important_va)
+  {
+    encl->secs_page.flags |= SGX_ENCL_PAGE_PINNED;
+  }
 
 	secs_vaddr = sgx_get_page(secs_epc);
 
@@ -586,7 +603,6 @@ static long sgx_ioc_enclave_create(struct file *filep, unsigned int cmd,
 
 	if (secs->flags & SGX_SECS_A_DEBUG)
 		encl->flags |= SGX_ENCL_DEBUG;
-
 
 	encl->mmu_notifier.ops = &sgx_mmu_notifier_ops;
 	ret = mmu_notifier_register(&encl->mmu_notifier, encl->mm);
