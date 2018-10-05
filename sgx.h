@@ -71,8 +71,13 @@
 #include <linux/radix-tree.h>
 #include "sgx_arch.h"
 
-#define MTAP_PIN_VA_START 0x601000
-#define MTAP_PIN_VA_END 0x602000
+#define MTAP_PIN_VA_START 0x629000
+#define MTAP_PIN_VA_END 0xba2000
+#define MTAP_NUM_WAYS 16
+#define MTAP_NUM_SETS 8192
+#define MTAP_NUM_SLICES 1
+#define MTAP_NUM_BLOCK_PER_PAGE 64
+#define MTAP_NUM_GROUP (MTAP_NUM_SETS/MTAP_NUM_BLOCK_PER_PAGE)
 
 #define SGX_EINIT_SPIN_COUNT	20
 #define SGX_EINIT_SLEEP_COUNT	50
@@ -225,6 +230,7 @@ extern struct task_struct *ksgxswapd_tsk;
 
 enum sgx_alloc_flags {
 	SGX_ALLOC_ATOMIC	= BIT(0),
+  SGX_ALLOC_CONFLICT = BIT(1),
 };
 
 int ksgxswapd(void *p);
