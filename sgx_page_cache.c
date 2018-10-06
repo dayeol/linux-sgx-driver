@@ -410,19 +410,20 @@ int ksgxswapd(void *p)
 
 #define SET(addr) ((addr>>6) & (MTAP_NUM_SETS - 1))
 #define GROUP(set) (set >> 6)
-int does_conflict(resource_size_t pa)
+int does_conflict(resource_size_t pa, int group_required)
 {
-  if( GROUP( SET(pa) ) < 2 )
+  if( GROUP( SET(pa) ) < group_required )
     return 1;
   else
     return 0;
 } 
 
-void init_conflict_group(resource_size_t start, unsigned long size)
+int init_conflict_group(resource_size_t start, unsigned long size)
 {
   resource_size_t walk;
   int g;
-  
+  int important_va_num_page = (MTAP_PIN_VA_END - MTAP_PIN_VA_START)/PAGE_SIZE;
+  int cover = 0;
   // from the starting address, go through all the pages, 
   // and increment the counter for the group that the page belongs to.
   for(g=0; g<MTAP_NUM_GROUP; g++)
@@ -437,8 +438,14 @@ void init_conflict_group(resource_size_t start, unsigned long size)
   }
   for(g=0; g<MTAP_NUM_GROUP; g++)
   {
-    pr_info("conflict group %d: %d\n", g, conflict_group[g]);
+    if(cover >= important_va_num_page)
+      break;
+    //pr_info("conflict group %d: %d\n", g, conflict_group[g]);
+    cover += conflict_group[g];
   }
+
+  pr_info("number of pages: %d, required number of groups %d\n", important_va_num_page, g);
+  return g;
 }
 
 int sgx_page_cache_init(resource_size_t start, unsigned long size)
@@ -446,8 +453,9 @@ int sgx_page_cache_init(resource_size_t start, unsigned long size)
 	unsigned long i;
 	struct sgx_epc_page *new_epc_page, *entry;
 	struct list_head *parser, *temp;
-
-  init_conflict_group(start, size);
+  int group_required;
+  
+  group_required = init_conflict_group(start, size);
 
 	for (i = 0; i < size; i += PAGE_SIZE) {
 		new_epc_page = kzalloc(sizeof(*new_epc_page), GFP_KERNEL);
@@ -456,7 +464,7 @@ int sgx_page_cache_init(resource_size_t start, unsigned long size)
 		new_epc_page->pa = start + i;
 
 		spin_lock(&sgx_free_list_lock);
-    if(does_conflict(new_epc_page->pa))
+    if(does_conflict(new_epc_page->pa, group_required))
     {
       list_add_tail(&new_epc_page->free_list, &sgx_conflict_list);
       sgx_nr_free_pages_conflict++;
