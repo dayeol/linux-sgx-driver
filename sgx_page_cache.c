@@ -76,7 +76,7 @@
 static LIST_HEAD(sgx_free_list);
 static LIST_HEAD(sgx_conflict_list);
 static DEFINE_SPINLOCK(sgx_free_list_lock);
-
+static int group_required;
 LIST_HEAD(sgx_tgid_ctx_list);
 DEFINE_MUTEX(sgx_tgid_ctx_mutex);
 static unsigned int sgx_nr_total_epc_pages;
@@ -476,7 +476,6 @@ int sgx_page_cache_init(resource_size_t start, unsigned long size)
 	unsigned long i;
 	struct sgx_epc_page *new_epc_page, *entry;
 	struct list_head *parser, *temp;
-  int group_required;
   
   group_required = init_conflict_group(start, size);
 
@@ -647,10 +646,16 @@ int sgx_free_page(struct sgx_epc_page *entry, struct sgx_encl *encl)
 
 		return ret;
 	}
-
 	spin_lock(&sgx_free_list_lock);
-	list_add(&entry->free_list, &sgx_free_list);
-	sgx_nr_free_pages++;
+  
+  if(does_conflict(entry->pa, group_required)) {
+    list_add(&entry->free_list, &sgx_conflict_list);
+    sgx_nr_free_pages_conflict++;
+  }
+  else {
+	  list_add(&entry->free_list, &sgx_free_list);
+	  sgx_nr_free_pages++;
+  }
 	spin_unlock(&sgx_free_list_lock);
 
 	return 0;
