@@ -228,6 +228,8 @@ static bool sgx_process_add_page_req(struct sgx_add_page_req *req)
 	if (IS_ERR(epc_page))
 		return false;
 
+	pr_info("epc pa %08llx -> va %08lx\n", epc_page->pa, encl_page->addr);
+
 	down_read(&encl->mm->mmap_sem);
 
 	mutex_lock(&encl->lock);
