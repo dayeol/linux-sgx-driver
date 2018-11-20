@@ -165,6 +165,36 @@ static struct miscdevice sgx_dev = {
 	.mode   = 0666,
 };
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0))
+int sgx_conflict_fault(struct vm_fault *vmf);
+#else
+int sgx_conflict_fault(struct vm_area_struct *vma, struct vm_fault *vmf);
+#endif
+
+const struct vm_operations_struct sgx_conflict_vm_ops = {
+	.fault = sgx_conflict_fault,
+};
+
+static int sgx_conflict_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	vma->vm_ops = &sgx_conflict_vm_ops;
+	vma->vm_flags |= VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP | VM_IO |
+			 VM_DONTCOPY;
+	return 0;
+}
+
+static const struct file_operations sgx_conflict_fops = {
+	.owner	= THIS_MODULE,
+	.mmap	= sgx_conflict_mmap,
+};
+
+static struct miscdevice sgx_conflict_dev = {
+	.name	= "isgx-conflict",
+	.minor	= MISC_DYNAMIC_MINOR,
+	.fops	= &sgx_conflict_fops,
+	.mode   = 0666,
+};
+
 static int sgx_init_platform(void)
 {
 	unsigned int eax, ebx, ecx, edx;
@@ -348,6 +378,13 @@ static int sgx_dev_init(struct device *dev)
 		goto out_workqueue;
 	}
 
+	ret = misc_register(&sgx_conflict_dev);
+	if (ret) {
+		misc_deregister(&sgx_dev);
+		pr_err("intel_sgx: misc_register() failed\n");
+		goto out_workqueue;
+	}
+
 	return 0;
 out_workqueue:
 	destroy_workqueue(sgx_add_page_wq);
@@ -413,6 +450,7 @@ static int sgx_drv_remove(struct platform_device *pdev)
 {
 	int i;
 
+	misc_deregister(&sgx_conflict_dev);
 	misc_deregister(&sgx_dev);
 	destroy_workqueue(sgx_add_page_wq);
 #ifdef CONFIG_X86_64

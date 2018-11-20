@@ -431,17 +431,20 @@ int ksgxswapd(void *p)
 	return 0;
 }
 
-#define SET(addr) ((addr>>6) & (MTAP_NUM_SETS - 1))
-#define GROUP(set) (set >> 6)
-int does_conflict(resource_size_t pa, int group_required)
+#define SET(addr)  (((addr) >> 6) & (MTAP_NUM_SETS - 1))
+#define GROUP(set) ((set) >> 6)
+
+static int group_required;
+
+static int does_conflict(resource_size_t pa)
 {
   if( GROUP( SET(pa) ) < group_required )
     return 1;
   else
     return 0;
-} 
+}
 
-int init_conflict_group(resource_size_t start, unsigned long size)
+static int init_conflict_group(resource_size_t start, unsigned long size)
 {
   resource_size_t walk;
   int g;
@@ -463,12 +466,13 @@ int init_conflict_group(resource_size_t start, unsigned long size)
   {
     if(cover >= important_va_num_page)
       break;
-    //pr_info("conflict group %d: %d\n", g, conflict_group[g]);
+
     cover += conflict_group[g];
+    group_required = g + 1;
   }
 
-  pr_info("number of pages: %d, required number of groups %d\n", important_va_num_page, g);
-  return g;
+  pr_info("number of pages: %d, required number of groups %d\n", important_va_num_page, group_required);
+  return 0;
 }
 
 int sgx_page_cache_init(resource_size_t start, unsigned long size)
@@ -476,8 +480,8 @@ int sgx_page_cache_init(resource_size_t start, unsigned long size)
 	unsigned long i;
 	struct sgx_epc_page *new_epc_page, *entry;
 	struct list_head *parser, *temp;
-  
-  group_required = init_conflict_group(start, size);
+
+	init_conflict_group(start, size);
 
 	for (i = 0; i < size; i += PAGE_SIZE) {
 		new_epc_page = kzalloc(sizeof(*new_epc_page), GFP_KERNEL);
@@ -486,17 +490,16 @@ int sgx_page_cache_init(resource_size_t start, unsigned long size)
 		new_epc_page->pa = start + i;
 
 		spin_lock(&sgx_free_list_lock);
-    if(does_conflict(new_epc_page->pa, group_required))
-    {
-      list_add_tail(&new_epc_page->free_list, &sgx_conflict_list);
-      sgx_nr_free_pages_conflict++;
-    }
-    else
-    {
-		  list_add_tail(&new_epc_page->free_list, &sgx_free_list);
-		  sgx_nr_free_pages++;
-    }
-    sgx_nr_total_epc_pages++;
+
+	if(does_conflict(new_epc_page->pa)) {
+		list_add_tail(&new_epc_page->free_list, &sgx_conflict_list);
+		sgx_nr_free_pages_conflict++;
+	} else {
+		list_add_tail(&new_epc_page->free_list, &sgx_free_list);
+		sgx_nr_free_pages++;
+	}
+	sgx_nr_total_epc_pages++;
+
 		spin_unlock(&sgx_free_list_lock);
 	}
 
@@ -525,6 +528,11 @@ void sgx_page_cache_teardown(void)
 
 	spin_lock(&sgx_free_list_lock);
 	list_for_each_safe(parser, temp, &sgx_free_list) {
+		entry = list_entry(parser, struct sgx_epc_page, free_list);
+		list_del(&entry->free_list);
+		kfree(entry);
+	}
+	list_for_each_safe(parser, temp, &sgx_conflict_list) {
 		entry = list_entry(parser, struct sgx_epc_page, free_list);
 		list_del(&entry->free_list);
 		kfree(entry);
@@ -647,20 +655,93 @@ int sgx_free_page(struct sgx_epc_page *entry, struct sgx_encl *encl)
 		return ret;
 	}
 	spin_lock(&sgx_free_list_lock);
-  
-  if(does_conflict(entry->pa, group_required)) {
-    list_add(&entry->free_list, &sgx_conflict_list);
-    sgx_nr_free_pages_conflict++;
-  }
-  else {
-	  list_add(&entry->free_list, &sgx_free_list);
-	  sgx_nr_free_pages++;
-  }
+
+	if(does_conflict(entry->pa)) {
+		list_add(&entry->free_list, &sgx_conflict_list);
+		sgx_nr_free_pages_conflict++;
+	} else {
+		list_add(&entry->free_list, &sgx_free_list);
+		sgx_nr_free_pages++;
+	}
+
 	spin_unlock(&sgx_free_list_lock);
 
 	return 0;
 }
 EXPORT_SYMBOL(sgx_free_page);
+
+#define MTAP_CONFLICT_PAGES_ORDER  ((MTAP_NUM_SETS_ORDER + 6) - PAGE_SHIFT)
+#define MTAP_CONFLICT_PAGES        (1ULL << MTAP_CONFLICT_PAGES_ORDER)
+
+static struct page *conflict_pages[MTAP_CONFLICT_PAGES];
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0))
+int sgx_conflict_fault(struct vm_fault *vmf)
+{
+	struct vm_area_struct *vma = vmf->vma;
+#else
+int sgx_conflict_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+{
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0))
+	unsigned long addr = (unsigned long) vmf->address;
+#else
+	unsigned long addr = (unsigned long) vmf->virtual_address;
+#endif
+	struct page *new = NULL, *new_pages;
+	int ret, i, j;
+
+	spin_lock(&sgx_free_list_lock);
+	for (i = 0; i < MTAP_CONFLICT_PAGES; i++)
+		if (conflict_pages[i]) {
+			new = conflict_pages[i];
+			conflict_pages[i] = NULL;
+			break;
+		}
+	spin_unlock(&sgx_free_list_lock);
+	if (new)
+		goto done_alloc;
+
+	new_pages = alloc_pages(GFP_KERNEL|__GFP_ZERO, MTAP_CONFLICT_PAGES_ORDER);
+	if (!new_pages)
+		return VM_FAULT_OOM;
+
+	spin_lock(&sgx_free_list_lock);
+	for (i = 0; i < MTAP_CONFLICT_PAGES; i++) {
+		struct page *p = new_pages + i;
+		u64 pa = page_to_pfn(p) << PAGE_SHIFT;
+		if (!does_conflict(pa)) {
+			__free_page(p);
+			continue;
+		}
+		if (!new) {
+			new = p;
+			continue;
+		}
+		for (j = 0; j < MTAP_CONFLICT_PAGES; j++) {
+			if (!conflict_pages[j]) {
+				conflict_pages[j] = p;
+				p = NULL;
+				break;
+			}
+		}
+		if (p) {
+			__free_page(p);
+			continue;
+		}
+	}
+	spin_unlock(&sgx_free_list_lock);
+
+done_alloc:
+	BUG_ON(!new);
+	ret = vm_insert_pfn(vma, addr, page_to_pfn(new));
+	if (ret < 0) {
+		__free_page(new);
+	} else {
+		vmf->page = new;
+	}
+	return ret;
+}
 
 void *sgx_get_page(struct sgx_epc_page *entry)
 {
