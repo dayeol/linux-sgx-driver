@@ -340,6 +340,8 @@ static struct sgx_encl_page *sgx_do_fault(struct vm_area_struct *vma,
 	 */
 	encl->secs_child_cnt++;
 
+	pr_info("epc pa %08llx -> va %08lx\n", epc_page->pa, addr);
+
 	entry->epc_page = epc_page;
 
 	if (reserve)
