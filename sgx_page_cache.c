@@ -220,6 +220,7 @@ reselect_page:
 
     if(entry->flags & SGX_ENCL_PAGE_PINNED)
     {
+      //pr_info("PINNED page, reselecting...\n");
       list_move_tail(&entry->load_list, &encl->load_list);
       goto reselect_page;
     }
@@ -438,6 +439,7 @@ int init_conflict_group(resource_size_t start, unsigned long size)
   }
   for(g=0; g<MTAP_NUM_GROUP; g++)
   {
+    pr_info("group[%d]: %d pages\n", g, conflict_group[g]);
     if(cover >= important_va_num_page)
       break;
     //pr_info("conflict group %d: %d\n", g, conflict_group[g]);
@@ -477,6 +479,7 @@ int sgx_page_cache_init(resource_size_t start, unsigned long size)
 		spin_unlock(&sgx_free_list_lock);
 	}
 
+  pr_info("pages: conflict[%d], free[%d], total[%d]\n", sgx_nr_free_pages_conflict, sgx_nr_free_pages, sgx_nr_total_epc_pages);
 	sgx_nr_high_pages = 2 * sgx_nr_low_pages;
 	ksgxswapd_tsk = kthread_run(ksgxswapd, NULL, "ksgxswapd");
 
@@ -519,6 +522,8 @@ static struct sgx_epc_page *sgx_alloc_conflict_fast(void)
     entry = list_first_entry(&sgx_conflict_list, struct sgx_epc_page, free_list);
     list_del(&entry->free_list);
     sgx_nr_free_pages_conflict--;
+    if (sgx_nr_free_pages_conflict == 0)
+      pr_info("no conflict pages left...\n");
   }
   
   spin_unlock(&sgx_free_list_lock);
@@ -537,6 +542,9 @@ static struct sgx_epc_page *sgx_alloc_page_fast(void)
 					 free_list);
 		list_del(&entry->free_list);
 		sgx_nr_free_pages--;
+    if(sgx_nr_free_pages == 0)
+      pr_info("no free pages left..\n");
+
 	}
 
 	spin_unlock(&sgx_free_list_lock);

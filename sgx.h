@@ -179,15 +179,15 @@ extern const struct vm_operations_struct sgx_vm_ops;
 extern atomic_t sgx_nr_pids;
 
 #define sgx_pr_ratelimited(level, encl, fmt, ...)			  \
-	pr_ ## level ## _ratelimited("intel_sgx: [%d:0x%p] " fmt,	  \
+	pr_ ## level ("intel_sgx: [%d:0x%p] " fmt,	  \
 				     pid_nr((encl)->tgid_ctx->tgid),	  \
 				     (void *)(encl)->base, ##__VA_ARGS__)
 
-#define sgx_dbg(encl, fmt, ...) sgx_pr_ratelimited(debug, encl, fmt, ##__VA_ARGS__)
+#define sgx_dbg(encl, fmt, ...) sgx_pr_ratelimited(info, encl, fmt, ##__VA_ARGS__)
 #define sgx_info(encl, fmt, ...) sgx_pr_ratelimited(info, encl, fmt, ##__VA_ARGS__)
-#define sgx_warn(encl, fmt, ...) sgx_pr_ratelimited(warn, encl, fmt, ##__VA_ARGS__)
-#define sgx_err(encl, fmt, ...) sgx_pr_ratelimited(err, encl, fmt, ##__VA_ARGS__)
-#define sgx_crit(encl, fmt, ...) sgx_pr_ratelimited(crit, encl, fmt, ##__VA_ARGS__)
+#define sgx_warn(encl, fmt, ...) sgx_pr_ratelimited(info, encl, fmt, ##__VA_ARGS__)
+#define sgx_err(encl, fmt, ...) sgx_pr_ratelimited(info, encl, fmt, ##__VA_ARGS__)
+#define sgx_crit(encl, fmt, ...) sgx_pr_ratelimited(info, encl, fmt, ##__VA_ARGS__)
 
 long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg);
 #ifdef CONFIG_COMPAT

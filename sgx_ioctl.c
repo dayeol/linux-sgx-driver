@@ -226,8 +226,8 @@ static bool sgx_process_add_page_req(struct sgx_add_page_req *req)
   else {
     epc_page = sgx_alloc_page(0);
   }
-   
-  pr_info("epc pa %08llx -> va %08lx\n", epc_page->pa, addr);
+
+  //pr_info("epc pa %08llx -> va %08lx\n", epc_page->pa, addr);
 
 	if (IS_ERR(epc_page))
 		return false;
@@ -413,7 +413,12 @@ static int sgx_init_page(struct sgx_encl *encl,
 		if (!va_page)
 			return -ENOMEM;
 
-		epc_page = sgx_alloc_page(0);
+//    if(addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END) {
+ //     epc_page = sgx_alloc_page(SGX_ALLOC_CONFLICT);
+ //   } else {
+		  epc_page = sgx_alloc_page(0);
+ //   }
+
 		if (IS_ERR(epc_page)) {
 			kfree(va_page);
 			return PTR_ERR(epc_page);
