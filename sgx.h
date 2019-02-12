@@ -71,8 +71,8 @@
 #include <linux/radix-tree.h>
 #include "sgx_arch.h"
 
-#define MTAP_PIN_VA_START 0x629000
-#define MTAP_PIN_VA_END 0xba2000
+#define MTAP_PIN_VA_START 0x633000
+#define MTAP_PIN_VA_END 0x633000 + 65536*8*4
 #define MTAP_NUM_WAYS 16
 #define MTAP_NUM_SETS 1024
 #define MTAP_NUM_SLICES 1
