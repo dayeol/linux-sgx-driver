@@ -89,7 +89,8 @@ static DECLARE_WAIT_QUEUE_HEAD(ksgxswapd_waitq);
 
 /* UCB */
 static unsigned int conflict_group[MTAP_NUM_GROUP];
-
+static unsigned int important_va_num_page = 0;
+static unsigned int the_last_reserved_pa = 0;
 static int sgx_test_and_clear_young_cb(pte_t *ptep, pgtable_t token,
 				       unsigned long addr, void *data)
 {
@@ -346,7 +347,7 @@ static void sgx_evict_page(struct sgx_encl_page *entry,
 	pr_info("epc swap pa %08llx\n", entry->epc_page->pa);
 
 	sgx_ewb(encl, entry);
-	sgx_free_page(entry->epc_page, encl);
+  sgx_free_page(entry->epc_page, encl);
 	entry->epc_page = NULL;
 	entry->flags &= ~SGX_ENCL_PAGE_RESERVED;
 }
@@ -415,7 +416,7 @@ static void sgx_swap_pages(unsigned long nr_to_scan)
 
 	kref_put(&encl->refcount, sgx_encl_release);
 out:
-	kref_put(&ctx->refcount, sgx_tgid_ctx_release);
+  kref_put(&ctx->refcount, sgx_tgid_ctx_release);
 }
 
 int ksgxswapd(void *p)
@@ -433,25 +434,26 @@ int ksgxswapd(void *p)
 	return 0;
 }
 
-#define SET(addr)  (((addr) >> 6) & (MTAP_NUM_SETS - 1))
-#define GROUP(set) ((set) >> 6)
-
-static int group_required;
-
-static int does_conflict(resource_size_t pa)
+int does_conflict(resource_size_t pa, int group_required)
 {
-  if( GROUP( SET(pa) ) < group_required )
+  if( (GROUP( SET(pa) ) < group_required) && (GROUP( SET(pa) ) >= 0))
     return 1;
   else
     return 0;
 }
 
-static int init_conflict_group(resource_size_t start, unsigned long size)
+int is_squeezing_reserved_pa(resource_size_t pa, int group_required)
+{
+  return (does_conflict(pa, group_required) && pa <= the_last_reserved_pa);
+}
+
+int init_conflict_group(resource_size_t start, unsigned long size)
 {
   resource_size_t walk;
   int g;
-  int important_va_num_page = (MTAP_PIN_VA_END - MTAP_PIN_VA_START)/PAGE_SIZE;
   int cover = 0;
+  important_va_num_page = 8 + (MTAP_PIN_VA_END - MTAP_PIN_VA_START)/PAGE_SIZE;
+  pr_info("initializing conflict group..\n");
   // from the starting address, go through all the pages, 
   // and increment the counter for the group that the page belongs to.
   for(g=0; g<MTAP_NUM_GROUP; g++)
@@ -493,16 +495,23 @@ int sgx_page_cache_init(resource_size_t start, unsigned long size)
 
 		spin_lock(&sgx_free_list_lock);
 
-	if(does_conflict(new_epc_page->pa)) {
-		list_add_tail(&new_epc_page->free_list, &sgx_conflict_list);
-		sgx_nr_free_pages_conflict++;
-	} else {
-		list_add_tail(&new_epc_page->free_list, &sgx_free_list);
-		sgx_nr_free_pages++;
-	}
-	sgx_nr_total_epc_pages++;
-
-		spin_unlock(&sgx_free_list_lock);
+    if(does_conflict(new_epc_page->pa, group_required) && the_last_reserved_pa == 0)
+    {
+      list_add_tail(&new_epc_page->free_list, &sgx_conflict_list);
+      sgx_nr_free_pages_conflict++;
+      if(sgx_nr_free_pages_conflict == important_va_num_page)
+      {
+        the_last_reserved_pa = new_epc_page->pa;
+      }
+    }
+    else
+    {
+		  list_add_tail(&new_epc_page->free_list, &sgx_free_list);
+		  sgx_nr_free_pages++;
+    }
+    sgx_nr_total_epc_pages++;
+		
+    spin_unlock(&sgx_free_list_lock);
 	}
 
 	sgx_nr_high_pages = 2 * sgx_nr_low_pages;
@@ -548,6 +557,11 @@ static struct sgx_epc_page *sgx_alloc_conflict_fast(void)
 
   spin_lock(&sgx_free_list_lock);
 
+  if(sgx_nr_free_pages_conflict == 0)
+  {
+    pr_info("fucked up\n");
+  }
+
   if (!list_empty(&sgx_conflict_list)) {
     entry = list_first_entry(&sgx_conflict_list, struct sgx_epc_page, free_list);
     list_del(&entry->free_list);
@@ -565,6 +579,10 @@ static struct sgx_epc_page *sgx_alloc_page_fast(void)
 
 	spin_lock(&sgx_free_list_lock);
 
+  if(sgx_nr_free_pages == 0)
+  {
+    pr_info("fucked up 2\n");
+  }
 	if (!list_empty(&sgx_free_list)) {
 		entry = list_first_entry(&sgx_free_list, struct sgx_epc_page,
 					 free_list);
@@ -657,15 +675,15 @@ int sgx_free_page(struct sgx_epc_page *entry, struct sgx_encl *encl)
 		return ret;
 	}
 	spin_lock(&sgx_free_list_lock);
-
-	if(does_conflict(entry->pa)) {
-		list_add(&entry->free_list, &sgx_conflict_list);
-		sgx_nr_free_pages_conflict++;
-	} else {
-		list_add(&entry->free_list, &sgx_free_list);
-		sgx_nr_free_pages++;
-	}
-
+  
+  if(is_squeezing_reserved_pa(entry->pa, group_required)) {
+    list_add(&entry->free_list, &sgx_conflict_list);
+    sgx_nr_free_pages_conflict++;
+  }
+  else {
+	  list_add(&entry->free_list, &sgx_free_list);
+	  sgx_nr_free_pages++;
+  }
 	spin_unlock(&sgx_free_list_lock);
 
 	return 0;
@@ -712,7 +730,7 @@ int sgx_conflict_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	for (i = 0; i < MTAP_CONFLICT_PAGES; i++) {
 		struct page *p = new_pages + i;
 		u64 pa = page_to_pfn(p) << PAGE_SHIFT;
-		if (!does_conflict(pa)) {
+		if (!does_conflict(pa, group_required)) {
 			__free_page(p);
 			continue;
 		}
