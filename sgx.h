@@ -71,14 +71,17 @@
 #include <linux/radix-tree.h>
 #include "sgx_arch.h"
 
-#define MTAP_PIN_VA_START 0x629000
-#define MTAP_PIN_VA_END 0xba2000
+#define MTAP_PIN_VA_START 0x633000
+#define MTAP_PIN_VA_END 0x633000 + 65536*32
 #define MTAP_NUM_WAYS 16
 #define MTAP_NUM_SETS 1024
 #define MTAP_NUM_SETS_ORDER 10 /* 2 ^ 10 = 1024 */
 #define MTAP_NUM_SLICES 1
 #define MTAP_NUM_BLOCK_PER_PAGE 64
 #define MTAP_NUM_GROUP (MTAP_NUM_SETS/MTAP_NUM_BLOCK_PER_PAGE)
+
+#define SET(addr) ((addr>>6) & (MTAP_NUM_SETS - 1))
+#define GROUP(set) (set >> 6)
 
 #define SGX_EINIT_SPIN_COUNT	20
 #define SGX_EINIT_SLEEP_COUNT	50
@@ -100,6 +103,28 @@ static inline unsigned int sgx_alloc_va_slot(struct sgx_va_page *page)
 		set_bit(slot, page->slots);
 
 	return slot << 3;
+}
+
+static inline bool is_important_va(unsigned long addr)
+{
+  if( addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END )
+    return true;
+  else if(addr / PAGE_SIZE == 0xa9f7)
+    return true;
+  else if(addr / PAGE_SIZE == 0xb9c3)
+    return true;
+  else if(addr / PAGE_SIZE == 0xba48)
+    return true;
+  else if(addr / PAGE_SIZE == 0xbc90)
+    return true;
+  else if(addr / PAGE_SIZE == 0xb96e)
+    return true;
+  else if(addr / PAGE_SIZE == 0xbc96)
+    return true;
+  else if(addr / PAGE_SIZE == 0xba47)
+    return true;
+  else
+    return false;
 }
 
 static inline void sgx_free_va_slot(struct sgx_va_page *page,

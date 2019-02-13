@@ -219,15 +219,16 @@ static bool sgx_process_add_page_req(struct sgx_add_page_req *req)
 
   /* UCB: check if the requested VA is important for our attack */
   unsigned long addr = encl_page->addr;
-  int is_important_va = (addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END);
-  if(is_important_va) {
+  //int is_important_va = (addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END);
+  if(is_important_va(addr)) {
     epc_page = sgx_alloc_page(SGX_ALLOC_CONFLICT);
   }
   else {
     epc_page = sgx_alloc_page(0);
   }
 
-	pr_info("epc pa %08llx -> va %08lx\n", epc_page->pa, addr);
+	//pr_info("epc pa %08llx -> va %08lx\n", epc_page->pa, addr);
+  pr_info("epc pa %08llx [%d] -> va %08lx\n", epc_page->pa, GROUP( SET( epc_page->pa) ), addr);
 
 	if (IS_ERR(epc_page))
 		return false;
@@ -277,7 +278,10 @@ static bool sgx_process_add_page_req(struct sgx_add_page_req *req)
 
 	encl_page->epc_page = epc_page;
 	sgx_test_and_clear_young(encl_page, encl);
-	list_add_tail(&encl_page->load_list, &encl->load_list);
+  if(!is_important_va(addr))
+  {
+	  list_add_tail(&encl_page->load_list, &encl->load_list);
+  }
 
 	mutex_unlock(&encl->lock);
 	up_read(&encl->mm->mmap_sem);
@@ -451,7 +455,7 @@ static int sgx_init_page(struct sgx_encl *encl,
 	entry->va_offset = va_offset;
 	entry->addr = addr;
   
-  if(addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END)
+  if(is_important_va(addr))
   {
     entry->flags |= SGX_ENCL_PAGE_PINNED;
   }
@@ -684,12 +688,14 @@ static int __encl_add_page(struct sgx_encl *encl,
 		kunmap(tmp_page);
 		if (ret) {
 			__free_page(tmp_page);
+      pr_info("[fuck] validate tcs\n");
 			return ret;
 		}
 	}
 
 	ret = sgx_init_page(encl, encl_page, addp->addr);
 	if (ret) {
+    pr_info("[fuck] init page fail\n");
 		__free_page(tmp_page);
 		return -EINVAL;
 	}
@@ -697,17 +703,20 @@ static int __encl_add_page(struct sgx_encl *encl,
 	mutex_lock(&encl->lock);
 
 	if (encl->flags & (SGX_ENCL_INITIALIZED | SGX_ENCL_DEAD)) {
+    pr_info("[fuck] SGX_ENCL_INITIALIZED | SGX_ENCL_DEAD\n");
 		ret = -EINVAL;
 		goto out;
 	}
 
 	if (radix_tree_lookup(&encl->page_tree, addp->addr >> PAGE_SHIFT)) {
+    pr_info("[fuck] EEXIST\n");
 		ret = -EEXIST;
 		goto out;
 	}
 
 	req = kzalloc(sizeof(*req), GFP_KERNEL);
 	if (!req) {
+    pr_info("[fuck] ENOMEM\n");
 		ret = -ENOMEM;
 		goto out;
 	}
@@ -715,12 +724,14 @@ static int __encl_add_page(struct sgx_encl *encl,
 	backing = sgx_get_backing(encl, encl_page, false);
 	if (IS_ERR((void *)backing)) {
 		ret = PTR_ERR((void *)backing);
+    pr_info("[fuck] sgx_get_backing error\n");
 		goto out;
 	}
 
 	ret = radix_tree_insert(&encl->page_tree, encl_page->addr >> PAGE_SHIFT,
 				encl_page);
 	if (ret) {
+    pr_info("[fuck] radix tree\n");
 		sgx_put_backing(backing, false /* write */);
 		goto out;
 	}
@@ -791,7 +802,7 @@ static long sgx_ioc_enclave_add_page(struct file *filep, unsigned int cmd,
 
 	if (addp->addr < encl->base ||
 	    addp->addr > (encl->base + encl->size - PAGE_SIZE)) {
-		kref_put(&encl->refcount, sgx_encl_release);
+    kref_put(&encl->refcount, sgx_encl_release);
 		return -EINVAL;
 	}
 
@@ -802,7 +813,7 @@ static long sgx_ioc_enclave_add_page(struct file *filep, unsigned int cmd,
 	}
 
 	ret = __encl_add_page(encl, page, addp, &secinfo);
-	kref_put(&encl->refcount, sgx_encl_release);
+  kref_put(&encl->refcount, sgx_encl_release);
 
 	if (ret)
 		kfree(page);
@@ -915,7 +926,7 @@ static long sgx_ioc_enclave_init(struct file *filep, unsigned int cmd,
 
 	ret = __sgx_encl_init(encl, sigstruct, einittoken);
 out:
-	kref_put(&encl->refcount, sgx_encl_release);
+  kref_put(&encl->refcount, sgx_encl_release);
 out_free_page:
 	kunmap(initp_page);
 	__free_page(initp_page);

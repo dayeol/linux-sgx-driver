@@ -223,7 +223,7 @@ static struct sgx_encl_page *sgx_do_fault(struct vm_area_struct *vma,
 	bool reserve = (flags & SGX_FAULT_RESERVE) != 0;
 	int rc = 0;
 
-	/* If process was forked, VMA is still there but vm_private_data is set
+ 	/* If process was forked, VMA is still there but vm_private_data is set
 	 * to NULL.
 	 */
 	if (!encl)
