@@ -427,10 +427,10 @@ int init_conflict_group(resource_size_t start, unsigned long size)
   resource_size_t walk;
   int g;
   int cover = 0;
-  important_va_num_page = 8 + (MTAP_PIN_VA_END - MTAP_PIN_VA_START)/PAGE_SIZE;
+  important_va_num_page = MTAP_NUM_ADDITIONAL + (MTAP_PIN_VA_END - MTAP_PIN_VA_START)/PAGE_SIZE;
   pr_info("initializing conflict group..\n");
   // from the starting address, go through all the pages, 
-  // and increment the counter for the group that the page belongs to.
+  // and incr ement the counter for the group that the page belongs to.
   for(g=0; g<MTAP_NUM_GROUP; g++)
   {
     conflict_group[g] = 0;

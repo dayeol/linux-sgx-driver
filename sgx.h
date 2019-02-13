@@ -72,7 +72,7 @@
 #include "sgx_arch.h"
 
 #define MTAP_PIN_VA_START 0x633000
-#define MTAP_PIN_VA_END 0x633000 + 65536*32
+#define MTAP_PIN_VA_END 0x833000
 #define MTAP_NUM_WAYS 16
 #define MTAP_NUM_SETS 1024
 #define MTAP_NUM_SETS_ORDER 10 /* 2 ^ 10 = 1024 */
@@ -105,23 +105,15 @@ static inline unsigned int sgx_alloc_va_slot(struct sgx_va_page *page)
 	return slot << 3;
 }
 
+#define MTAP_NUM_ADDITIONAL 0x301
 static inline bool is_important_va(unsigned long addr)
 {
+  unsigned long page_addr = addr / PAGE_SIZE;
   if( addr >= MTAP_PIN_VA_START && addr < MTAP_PIN_VA_END )
     return true;
-  else if(addr / PAGE_SIZE == 0xa9f7)
-    return true;
-  else if(addr / PAGE_SIZE == 0xb9c3)
-    return true;
-  else if(addr / PAGE_SIZE == 0xba48)
-    return true;
-  else if(addr / PAGE_SIZE == 0xbc90)
-    return true;
-  else if(addr / PAGE_SIZE == 0xb96e)
-    return true;
-  else if(addr / PAGE_SIZE == 0xbc96)
-    return true;
-  else if(addr / PAGE_SIZE == 0xba47)
+  else if( (page_addr >= 0xb900 && page_addr < 0xbb00) ||
+      (page_addr >= 0xbc00 && page_addr < 0xbd00 ) ||
+      page_addr == 0xa9f7 )
     return true;
   else
     return false;
