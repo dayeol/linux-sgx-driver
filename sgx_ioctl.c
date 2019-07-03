@@ -234,8 +234,8 @@ static bool sgx_process_add_page_req(struct sgx_add_page_req *req)
     epc_page = sgx_alloc_page(0);
   }
 
-	//pr_info("epc pa %08llx -> va %08lx\n", epc_page->pa, addr);
-  pr_info("epc pa %08llx [%d] -> va %08lx\n", epc_page->pa, GROUP( SET( epc_page->pa) ), addr);
+	pr_info("epc pa %08llx -> va %08lx\n", epc_page->pa, addr);
+  //pr_info("epc pa %08llx [%d] -> va %08lx\n", epc_page->pa, GROUP( SET( epc_page->pa) ), addr);
 
 	if (IS_ERR(epc_page))
 		return false;
